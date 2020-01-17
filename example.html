@@ -1,0 +1,163 @@
+<!doctype html><html><head>
+  <meta charset="utf-8">
+  <title>cso detection example</title>
+  <!--vue
+    development version, includes helpful console warnings
+    production version, optimized for size and speed
+    <script src="https://cdn.jsdelivr.net/npm/vue"></script>
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+  <script src="readings.js"></script>
+</head>
+<body>
+<h1>CSO detection algorithm example</h1>
+<h4>
+  <a target=_blank href="Hoferetal_2018.pdf">Hofer et al 2018</a>
+</h4>
+
+<div id=app>
+  <table border=1 style=margin-right:10px>
+    <tr>
+      <th>t (min)
+      <th>T<sub>S1</sub> (ºC)<br><small>water</small>
+      <th>T<sub>S2</sub> (ºC)<br><small>air</small>
+    </tr>
+    <tr v-for="r in readings" :style=`background:${r.is_CSO?'yellow':''}`>
+      <td class=number>{{r.min}}
+      <td class=number>{{r.S1}}
+      <td class=number>{{r.S2}}
+    </tr>
+  </table>
+
+  <div>
+    <table border=1>
+      <tr><td colspan=3>Detection parameters
+      <tr><td>∆T<sub>CSO</sub>        <td><input type=number v-model.number="delta_T_CSO">    <td><small>ºC  </small>
+      <tr><td>F<sub>SENSOR</sub>      <td><input type=number v-model.number="f_sensor">       <td><small>ºC  </small>
+      <tr><td>t<sub>delay</sub> start <td><input type=number v-model.number="t_delay_start">  <td><small>min </small>
+      <tr><td>t<sub>delay</sub> end   <td><input type=number v-model.number="t_delay_end">    <td><small>min </small>
+      <tr><td>t<sub>gap</sub>         <td><input type=number v-model.number="t_gap">          <td><small>min </small>
+      <tr>
+        <td colspan=3>
+          <button @click="detect_cso(readings)"
+            style="
+              background:#af0;
+              padding:0.4em 0.3em;
+              font-size:large;
+              margin:auto;
+              display:block;
+            "
+          >
+            detect cso
+          </button>
+        </td>
+      </tr>
+    </table>
+
+    <table v-if="csos_detected.length" style=margin-top:10px border=1>
+      <tr>
+        <th colspan=4>CSO episodes detected ({{csos_detected.length}})
+      </tr>
+      <tr>
+        <th>nº<th>start (min)<th>end (min)
+        <th>duration (min)
+      </tr>
+      <tr v-for="cso,i in csos_detected">
+        <td class=number>{{i+1}}
+        <td class=number>{{cso.start}}
+        <td class=number>{{cso.end}}
+        <td class=number>{{cso.end-cso.start}}
+      </tr>
+    </table>
+  </div>
+</div>
+
+<style>
+  #app {
+    display:flex;
+    flex-wrap:wrap;
+  }
+  #app table{
+    border-collapse:collapse;
+  }
+  #app th {
+    background:#ccc;
+  }
+  #app .number{
+    text-align:right;
+    font-family:monospace;
+  }
+</style>
+
+<script>
+  let app=new Vue({
+    el:"#app",
+    data:{
+      readings,
+      delta_T_CSO:   0.2, //ºC
+      f_sensor:      0.1, //ºC
+      t_delay_start: 2,   //min
+      t_delay_end:   4,   //min
+      t_gap:        10,   //min
+      csos_detected:[],
+    },
+
+    methods:{
+      //the actual algorithm
+      detect_cso(readings){
+        let delta_T_CSO   = this.delta_T_CSO;   //ºC
+        let f_sensor      = this.f_sensor;      //ºC
+        let t_delay_start = this.t_delay_start; //min
+        let t_delay_end   = this.t_delay_end;   //min
+        let t_gap         = this.t_gap;         //min
+
+        //reset csos detected
+        this.csos_detected = [];
+
+        readings.forEach(r=>{
+          let min = r.min;
+          let TS1 = r.S1;
+          let TS2 = r.S2;
+          let diff_temp = Math.abs(TS1 - TS2 + f_sensor);
+          r.is_CSO = diff_temp < delta_T_CSO;
+        });
+
+        //divide readings in cso episodes
+        let readings_cso = readings.filter(r=>r.is_CSO);
+        let episode_start = 0; //min
+        let episode_end   = 0; //min
+
+        for(let i=0;i<readings_cso.length;i++){
+          let r = readings_cso[i];
+          if(i==0){
+            episode_start = r.min - t_delay_start;
+            continue;
+          }
+          if( (r.min - readings_cso[i-1].min) > t_gap){
+            episode_end = readings_cso[i-1].min - t_delay_end;
+            this.csos_detected.push({
+              start: episode_start,
+              end: episode_end,
+            });
+            episode_start = r.min - t_delay_start;
+          }
+        }
+        episode_end = readings_cso[readings_cso.length-1].min - t_delay_end;
+        this.csos_detected.push({
+          start: episode_start,
+          end: episode_end,
+        });
+      },
+
+      //TODO
+      Tau(rho,cp,V,h,A){
+        //rho: density of medium (g/m3)
+        //cp:  isobaric mass heat capacity (J/g·K)
+        //V:   body volume (m3)
+        //h:   heat transfer coefficient (J/s·m2·K)
+        //A:   heat transfer surface area (m2)
+        return rho*cp*V/(h*A);
+      },
+    },
+  });
+</script>
