@@ -1,0 +1,227 @@
+<!doctype html><html><head>
+  <!--vue
+    development version, includes helpful console warnings
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+    production version, optimized for size and speed
+    <script src="https://cdn.jsdelivr.net/npm/vue"></script>
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+</head><body>
+<h1>Join 2 csv files tool</h1>
+
+<div id=app>
+  <!--joined data-->
+  <div
+    style="
+      display:grid;
+      grid-template-columns:33% 33% 33%;
+      grid-gap:10px 0;
+      max-width:80%;
+    "
+  >
+    <!--filenames-->
+    <div v-for="file,i in csvs">csv file {{i+1}}</div>
+    <div><b>joined csv files</b></div>
+
+    <!--input type file-->
+    <div v-for="file,i in csvs">
+      <input
+        type=file
+        :id="i"
+        @change="load_csv_file($event)"
+      >
+    </div>
+    <div>
+      <label>
+        <input type=checkbox v-model="interpolation_on">
+        Use interpolation to fill gaps
+      </label>
+    </div>
+
+    <!--file contents-->
+    <div v-for="file,i in csvs">
+      <table border=1>
+        <tr><th>timestamp<th>temperature</tr>
+        <tr v-for="row in file">
+          <td>{{row.timestamp.toLocaleString()}}
+          <td>{{row.temperature}}
+        </tr>
+      </table>
+    </div>
+
+    <!--joined files-->
+    <div>
+      <table border=1>
+        <tr>
+          <th>timestamp
+          <th v-for="file,i in csvs">
+            temperature{{i+1}}
+          </th>
+        </tr>
+        <tr v-for="row in get_joined_file()">
+          <td>{{row.timestamp.toLocaleString()}}
+          <td v-for="file,i in csvs">
+            {{row[`temperature${i+1}`]}}
+          </td>
+        </tr>
+      </table>
+      <p>
+        <button @click="download_as_csv()">download as CSV</button>
+        <button @click="download_as_json()">download as JSON</button>
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+  let app=new Vue({
+    el:"#app",
+    data:{
+      csvs:[
+        [], //csv 1 (array of rows)
+        [], //csv 2 (array of rows)
+      ],
+      interpolation_on:false,
+    },
+
+    methods:{
+      //read csv file
+      load_csv_file(event){
+        let file   = event.target.files[0];
+        let reader = new FileReader();
+        let _this  = this;
+
+        reader.onload=function(){
+          let content = reader.result;       //string
+          let rows    = content.split('\n'); //array
+          rows.splice(rows.length-1,1); //delete last row
+          if(rows.length<3) throw "error";
+
+          let csv=_this.csvs[parseInt(event.target.id)];
+
+          rows.forEach((row,i)=>{
+            if(i<2) return;
+            let cells       = row.split(',');
+            let timestamp   = _this.convert_timestamp(cells[1]);
+            let temperature = parseFloat(cells[2]);
+            if(temperature)
+              csv.push({timestamp,temperature});
+          });
+        };
+
+        try{
+          reader.readAsText(file);
+        }catch(e){
+          alert(e);
+        }
+      },
+
+      join_csvs(){
+        let data=[];
+        this.csvs.forEach((csv,i)=>{
+          csv.forEach(row=>{
+            let timestamp = row.timestamp;
+            let new_row = { timestamp };
+            this.csvs.forEach((csv,j)=>{
+              let key = `temperature${j+1}`;
+              if(i==j) new_row[key] = row.temperature;
+            });
+            data.push(new_row);
+          });
+        });
+
+        //sort by timestamp
+        data.sort((a,b)=>{
+          return (a.timestamp>b.timestamp) ? 1 : -1;
+        });
+        return data;
+      },
+
+      convert_timestamp(str){
+        //str   = "16/07/20 09:38:06"; //test string
+        let split = str.split(" "); //array
+        let date  = split[0]; //string
+        let time  = split[1]; //string
+
+        //rearrange date
+        let date_split = date.split("/");
+        let dd         = date_split[0];
+        let mm         = date_split[1];
+        let yy         = date_split[2];
+
+        //fix year format
+        if(yy.length==2) yy = "20"+yy;
+
+        let new_date = `${mm}/${dd}/${yy} ${time}`;
+        return new Date(new_date);
+      },
+
+      fill_gaps_using_interpolation(){
+        let data = this.join_csvs();
+        let filled_data = []; //return value
+        data.forEach((row,i)=>{
+          if(i==0 || i==data.length-1) return;
+          let prev = data[i-1];
+          let next = data[i+1];
+          let missing   = row.temperature1==undefined ? "temperature1":"temperature2";
+          let slope     = (next[missing] - prev[missing])/(next.timestamp - prev.timestamp);
+          let new_value = prev[missing] + slope*(row.timestamp - prev.timestamp);
+          let new_row = {};
+          new_row.timestamp    = row.timestamp;
+          new_row.temperature1 = row.temperature1;
+          new_row.temperature2 = row.temperature2;
+          new_row[missing]     = new_value;
+          filled_data.push(new_row);
+        });
+        return filled_data;
+      },
+
+      get_joined_file(){
+        return this.interpolation_on ? this.fill_gaps_using_interpolation() : this.join_csvs();
+      },
+
+      download_as_csv(){
+        let content = "";
+        this.get_joined_file().forEach(row=>{
+          content += row.timestamp.toLocaleString()+",";
+          content += (row.temperature1||"")+",";
+          content += (row.temperature2||"")+",";
+          content += "\r\n";
+        });
+        let file    = new Blob([content],{type:'text/plain'});
+
+        //generate <a> link and click it
+        let a      = document.createElement('a');
+        a.href     = URL.createObjectURL(file);
+        a.target   = '_blank';
+        a.download = 'joined_csvs.csv'; //filename
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      },
+
+      download_as_json(){
+        let content = JSON.stringify(this.get_joined_file(),null,"  ");
+        let file    = new Blob([content],{type:'text/plain'});
+
+        //generate <a> link and click it
+        let a      = document.createElement('a');
+        a.href     = URL.createObjectURL(file);
+        a.target   = '_blank';
+        a.download = 'joined_csvs.json'; //filename
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      },
+    },
+  });
+</script>
+
+<style>
+  table{
+    border-collapse:collapse;
+  }
+  th{
+    text-align:left;
+  }
+</style>
