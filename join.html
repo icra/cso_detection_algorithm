@@ -1,4 +1,5 @@
 <!doctype html><html><head>
+  <meta charset=utf8>
   <!--vue
     development version, includes helpful console warnings
     <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
@@ -7,7 +8,10 @@
   -->
   <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
 </head><body>
-<h1>Join 2 csv files tool</h1>
+
+<!--title-->
+<h1>JOIN 2 CSV FILES</h1>
+<p>Drag and drop files on the "Select file" buttons below, or press the button to browse your pc</p>
 
 <div id=app>
   <!--joined data-->
@@ -16,12 +20,11 @@
       display:grid;
       grid-template-columns:33% 33% 33%;
       grid-gap:10px 0;
-      max-width:80%;
     "
   >
     <!--filenames-->
-    <div v-for="file,i in csvs">csv file {{i+1}}</div>
-    <div><b>joined csv files</b></div>
+    <div v-for="file,i in csvs"><b>Load File {{i+1}}</b></div>
+    <div><b>Result = File 1 + File 2</b></div>
 
     <!--input type file-->
     <div v-for="file,i in csvs">
@@ -29,23 +32,35 @@
         type=file
         :id="i"
         @change="load_csv_file($event)"
+        style="padding:5px 0"
       >
     </div>
+
     <div>
+      <button @click="joined_file=get_joined_file()">
+        Join files
+      </button>
       <label>
-        <input type=checkbox v-model="interpolation_on">
-        Use interpolation to fill gaps
+        <input
+          type=checkbox
+          v-model="interpolation_on"
+          :disabled="csvs[0].length==0 || csvs[1].length==0"
+        > Use interpolation to fill gaps
       </label>
     </div>
 
     <!--file contents-->
     <div v-for="file,i in csvs">
       <table border=1>
-        <tr><th>timestamp<th>temperature</tr>
-        <tr v-for="row in file">
+        <tr>
+          <th>Time</th>
+          <th>T{{i+1}}(ºC)</th>
+        </tr>
+        <tr v-for="row,j in file" v-if="j<10">
           <td>{{row.timestamp.toLocaleString()}}
           <td>{{row.temperature}}
         </tr>
+        <tr><td colspan=2>...{{file.length}} rows (total)</td></tr>
       </table>
     </div>
 
@@ -53,16 +68,17 @@
     <div>
       <table border=1>
         <tr>
-          <th>timestamp
-          <th v-for="file,i in csvs">
-            temperature{{i+1}}
-          </th>
+          <th>Time</th>
+          <th v-for="file,i in csvs">T{{i+1}}(ºC)</th>
         </tr>
-        <tr v-for="row in get_joined_file()">
+        <tr v-for="row,i in joined_file" v-if="i<10">
           <td>{{row.timestamp.toLocaleString()}}
-          <td v-for="file,i in csvs">
-            {{row[`temperature${i+1}`]}}
+          <td v-for="file,j in csvs">
+            {{row[`temperature${j+1}`]}}
           </td>
+        </tr>
+        <tr>
+          <td colspan=3>...{{joined_file.length}} rows (total)</td>
         </tr>
       </table>
       <p>
@@ -81,6 +97,7 @@
         [], //csv 1 (array of rows)
         [], //csv 2 (array of rows)
       ],
+      joined_file:[],
       interpolation_on:false,
     },
 
@@ -95,7 +112,6 @@
           let content = reader.result;       //string
           let rows    = content.split('\n'); //array
           rows.splice(rows.length-1,1); //delete last row
-          if(rows.length<3) throw "error";
 
           let csv=_this.csvs[parseInt(event.target.id)];
 
@@ -104,8 +120,9 @@
             let cells       = row.split(',');
             let timestamp   = _this.convert_timestamp(cells[1]);
             let temperature = parseFloat(cells[2]);
-            if(temperature)
+            if(temperature){
               csv.push({timestamp,temperature});
+            }
           });
         };
 
@@ -113,11 +130,12 @@
           reader.readAsText(file);
         }catch(e){
           alert(e);
+          throw(e);
         }
       },
 
       join_csvs(){
-        let data=[];
+        let all_rows=[];
         this.csvs.forEach((csv,i)=>{
           csv.forEach(row=>{
             let timestamp = row.timestamp;
@@ -126,15 +144,15 @@
               let key = `temperature${j+1}`;
               if(i==j) new_row[key] = row.temperature;
             });
-            data.push(new_row);
+            all_rows.push(new_row);
           });
         });
 
         //sort by timestamp
-        data.sort((a,b)=>{
+        all_rows.sort((a,b)=>{
           return (a.timestamp>b.timestamp) ? 1 : -1;
         });
-        return data;
+        return all_rows;
       },
 
       convert_timestamp(str){
@@ -157,22 +175,83 @@
       },
 
       fill_gaps_using_interpolation(){
-        let data = this.join_csvs();
+        let all_rows = this.join_csvs();
         let filled_data = []; //return value
-        data.forEach((row,i)=>{
-          if(i==0 || i==data.length-1) return;
-          let prev = data[i-1];
-          let next = data[i+1];
-          let missing   = row.temperature1==undefined ? "temperature1":"temperature2";
-          let slope     = (next[missing] - prev[missing])/(next.timestamp - prev.timestamp);
-          let new_value = prev[missing] + slope*(row.timestamp - prev.timestamp);
-          let new_row = {};
+
+        /*ensure that the last row of the joined csvs has all fields defined*/
+        let last_row     = all_rows[all_rows.length-1];
+        let new_last_row = {timestamp:null, temperature1:null, temperature2:null};
+        {
+          //find the latest row with the missing key of the last row
+          let missing_key = last_row.temperature1===undefined?"temperature1":"temperature2";
+          let index = all_rows.length-2; //first index to search for a valid previous row
+          while(all_rows[index][missing_key]===undefined){
+            index--;
+          }
+          let prev_row = all_rows[index]; //latest row with the missing key defined
+
+          new_last_row.timestamp    = last_row.timestamp;
+          new_last_row.temperature1 = last_row.temperature1;
+          new_last_row.temperature2 = last_row.temperature2;
+          new_last_row[missing_key] = prev_row[missing_key];
+        }
+
+        all_rows.forEach((row,i)=>{
+          let missing_key = row.temperature1===undefined ? "temperature1":"temperature2";
+
+          //first row
+          if(i==0){
+            //find next row with missing key
+            let index = i+1; //index of next row
+            while(all_rows[index][missing_key]===undefined){
+              index++;
+            }
+            let next_row = all_rows[index]; //next row with missing key
+
+            let new_row = {timestamp:null, temperature1:null, temperature2:null};
+            new_row.timestamp    = row.timestamp;
+            new_row.temperature1 = row.temperature1;
+            new_row.temperature2 = row.temperature2;
+            new_row[missing_key] = next_row[missing_key];
+            filled_data.push(new_row);
+            return;
+          }
+
+          //last row (already calculated)
+          if(i==all_rows.length-1){
+            filled_data.push(new_last_row);
+            return;
+          }
+
+          /*intermediate rows*/
+          let index_prev_row = i-1; //index of prev row
+          while(all_rows[index_prev_row][missing_key]===undefined){
+            index_prev_row--;
+          }
+          let prev_row = all_rows[index_prev_row]; //found prev row with missin key defined
+
+          let index_next_row = i+1; //index of next row
+          let end_reached=false;
+          while(all_rows[index_next_row][missing_key]===undefined){
+            index_next_row++;
+            if(index_next_row>=all_rows.length){
+              end_reached=true;
+              break;
+            }
+          }
+          let next_row = end_reached? new_last_row : all_rows[index_next_row];
+
+          let slope     = (next_row[missing_key] - prev_row[missing_key])/(next_row.timestamp - prev_row.timestamp);
+          let new_value = prev_row[missing_key] + slope*(row.timestamp - prev_row.timestamp);
+
+          let new_row={timestamp:null, temperature1:null, temperature2:null};
           new_row.timestamp    = row.timestamp;
           new_row.temperature1 = row.temperature1;
           new_row.temperature2 = row.temperature2;
-          new_row[missing]     = new_value;
+          new_row[missing_key] = new_value;
           filled_data.push(new_row);
         });
+
         return filled_data;
       },
 
@@ -182,13 +261,13 @@
 
       download_as_csv(){
         let content = "";
-        this.get_joined_file().forEach(row=>{
+        this.joined_file.forEach(row=>{
           content += row.timestamp.toLocaleString()+",";
           content += (row.temperature1||"")+",";
           content += (row.temperature2||"")+",";
           content += "\r\n";
         });
-        let file    = new Blob([content],{type:'text/plain'});
+        let file = new Blob([content],{type:'text/plain'});
 
         //generate <a> link and click it
         let a      = document.createElement('a');
@@ -201,7 +280,7 @@
       },
 
       download_as_json(){
-        let content = JSON.stringify(this.get_joined_file(),null,"  ");
+        let content = JSON.stringify(this.joined_file,null,"  ");
         let file    = new Blob([content],{type:'text/plain'});
 
         //generate <a> link and click it
