@@ -10,8 +10,11 @@
 </head><body>
 
 <!--title-->
-<h1>JOIN 2 CSV FILES</h1>
-<p>Drag and drop files on the "Select file" buttons below, or press the button to browse your pc</p>
+<h1>DWC / JOIN 2 CSV FILES</h1>
+<p>
+  Drag and drop files onto the "Select file" buttons below, or press the button
+  to open the select file dialog
+</p>
 
 <div id=app>
   <!--joined data-->
@@ -22,11 +25,11 @@
       grid-gap:10px 0;
     "
   >
-    <!--filenames-->
+    <!--filenames and result-->
     <div v-for="file,i in csvs"><b>Load File {{i+1}}</b></div>
     <div><b>Result = File 1 + File 2</b></div>
 
-    <!--input type file-->
+    <!--load file-->
     <div v-for="file,i in csvs">
       <input
         type=file
@@ -36,6 +39,7 @@
       >
     </div>
 
+    <!--result file-->
     <div>
       <button @click="joined_file=get_joined_file()">
         Join files
@@ -49,7 +53,7 @@
       </label>
     </div>
 
-    <!--file contents-->
+    <!--loaded file contents-->
     <div v-for="file,i in csvs">
       <table border=1>
         <tr>
@@ -64,7 +68,7 @@
       </table>
     </div>
 
-    <!--joined files-->
+    <!--result contents-->
     <div>
       <table border=1>
         <tr>
@@ -97,7 +101,7 @@
         [], //csv 1 (array of rows)
         [], //csv 2 (array of rows)
       ],
-      joined_file:[],
+      joined_file:[], //result (file 1 + file 2)
       interpolation_on:false,
     },
 
@@ -260,7 +264,7 @@
       },
 
       download_as_csv(){
-        let content = "";
+        let content="";
         this.joined_file.forEach(row=>{
           content += row.timestamp.toLocaleString()+",";
           content += (row.temperature1||"")+",";
